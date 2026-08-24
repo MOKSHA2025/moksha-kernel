@@ -35,19 +35,15 @@ struct idt_ptr_struct {
 struct idt_entry_struct idt_entries[256];
 struct idt_ptr_struct   idt_ptr;
 
-/* Secure IPC Message Structure */
-struct secure_ipc_message {
-    int sender_id;
-    int receiver_id;
-    int type;
-    char origin_node[20];
-    char data[32];
-    unsigned int integrity_hash;
-};
+/* Official Admin Master IP Definition */
+#define MASTER_ADMIN_IP "10.0.0.1"
 
-#define IPC_QUEUE_SIZE 8
-struct secure_ipc_message ipc_bus[IPC_QUEUE_SIZE];
-int ipc_count = 0;
+/* Sentinel Firewall State */
+int pending_authorization = 0;
+char pending_ip[20];
+char pending_cmd[32];
+int emergency_lockdown = 0;
+unsigned int visitor_seed = 8491;
 
 static inline void outb(unsigned short port, unsigned char val) {
     __asm__ __volatile__ ("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -109,15 +105,6 @@ void print_dec(int n) {
     }
 }
 
-void print_hex(unsigned int n) {
-    const char *hex_chars = "0123456789ABCDEF";
-    write_serial('0');
-    write_serial('x');
-    for (int j = 7; j >= 0; j--) {
-        write_serial(hex_chars[(n >> (j * 4)) & 0xF]);
-    }
-}
-
 int strcmp(const char *s1, const char *s2) {
     while (*s1 && (*s1 == *s2)) {
         s1++;
@@ -133,60 +120,6 @@ void strcpy(char *dest, const char *src) {
         i++;
     }
     dest[i] = '\0';
-}
-
-unsigned int calculate_integrity_hash(const char *data, int sender, int receiver) {
-    unsigned int hash = 2166136261u;
-    for (int i = 0; data[i] != '\0'; i++) {
-        hash ^= (unsigned int)data[i];
-        hash *= 16777619u;
-    }
-    hash ^= (unsigned int)sender;
-    hash ^= (unsigned int)receiver;
-    return hash;
-}
-
-int secure_ipc_send(int sender, int receiver, int type, const char *origin, const char *data) {
-    if (ipc_count >= IPC_QUEUE_SIZE) {
-        print_serial("[ERR] Queue Full!\n");
-        return -1;
-    }
-    ipc_bus[ipc_count].sender_id = sender;
-    ipc_bus[ipc_count].receiver_id = receiver;
-    ipc_bus[ipc_count].type = type;
-    strcpy(ipc_bus[ipc_count].origin_node, origin);
-    strcpy(ipc_bus[ipc_count].data, data);
-    ipc_bus[ipc_count].integrity_hash = calculate_integrity_hash(data, sender, receiver);
-    ipc_count++;
-    return 0;
-}
-
-void secure_ipc_verify_and_dispatch(void) {
-    if (ipc_count == 0) {
-        print_serial("[MIL-SHIELD] No secure messages in queue.\n");
-        return;
-    }
-    print_serial("\n=== [CRYPTOGRAPHIC THREAT & INTEGRITY MONITOR] ===\n");
-    for (int i = 0; i < ipc_count; i++) {
-        unsigned int computed = calculate_integrity_hash(ipc_bus[i].data, ipc_bus[i].sender_id, ipc_bus[i].receiver_id);
-        
-        print_serial("MSG [");
-        print_dec(i + 1);
-        print_serial("] IP: ");
-        print_serial(ipc_bus[i].origin_node);
-        print_serial(" | Data: \"");
-        print_serial(ipc_bus[i].data);
-        print_serial("\" | Hash: ");
-        print_hex(ipc_bus[i].integrity_hash);
-        
-        if (computed == ipc_bus[i].integrity_hash) {
-            print_serial(" | [VERIFIED SECURE]\n");
-        } else {
-            print_serial(" | [TAMPER DETECTED! ACCESS DENIED]\n");
-        }
-    }
-    print_serial("[OK] Security audit complete.\n");
-    ipc_count = 0;
 }
 
 void gdt_set_gate(int num, unsigned long base, unsigned long limit, unsigned char access, unsigned char gran) {
@@ -220,7 +153,7 @@ void idt_set_gate(unsigned char num, unsigned long base, unsigned short sel, uns
 }
 
 void default_interrupt_handler(void) {
-    print_serial("[WARN] Interrupt Trap!\n");
+    print_serial("[WARN] Interrupt Trap Triggered!\n");
 }
 
 void init_idt(void) {
@@ -234,12 +167,48 @@ void init_idt(void) {
     __asm__ __volatile__("lidt (%0)" : : "r" (&idt_ptr));
 }
 
+void handle_ip_request(const char *ip, const char *cmd) {
+    if (emergency_lockdown) {
+        print_serial("[REJECTED] System is in FULL EMERGENCY LOCKDOWN. No requests allowed.\n");
+        return;
+    }
+
+    /* Condition 1: Official Admin IP -> Fast-Track VIP Priority */
+    if (strcmp(ip, MASTER_ADMIN_IP) == 0) {
+        print_serial("\n>>> [VIP FAST-TRACK AUTHENTICATED] <<<\n");
+        print_serial("Source IP: ");
+        print_serial(ip);
+        print_serial(" (OFFICIAL MOKSHA MASTER)\n");
+        print_serial("Status: VIP Priority Granted. Zero latency execution: [");
+        print_serial(cmd);
+        print_serial("] -> SUCCESS!\n");
+        return;
+    }
+
+    /* Condition 2: Unknown IP -> Trigger Sentinel Notification */
+    pending_authorization = 1;
+    strcpy(pending_ip, ip);
+    strcpy(pending_cmd, cmd);
+
+    print_serial("\n=======================================================\n");
+    print_serial("[SENTINEL ALERT -> NOTIFICATION TO MOKSHA MASTER PHONE]\n");
+    print_serial("Unknown / Foreign IP Detected: ");
+    print_serial(ip);
+    print_serial("\nTarget Command: '");
+    print_serial(cmd);
+    print_serial("'\nState: HELD IN QUARANTINE.\n");
+    print_serial("Moksha Decision Required:\n");
+    print_serial("  Type 'approve' -> Issue Dynamic Visitor Token\n");
+    print_serial("  Type 'deny'    -> Engage Counter-Attack & Emergency Lockdown\n");
+    print_serial("=======================================================\n");
+}
+
 void shell_run(void) {
     char buffer[64];
     int idx = 0;
 
-    print_serial("\nCommands: 'test', 'tamper', 'verify', 'info', 'help', 'clear'\n");
-    print_serial("moksha-shield> ");
+    print_serial("\nCommands: 'admin-req', 'unknown-req', 'approve', 'deny', 'status', 'reset', 'clear'\n");
+    print_serial("moksha-sentinel> ");
 
     while (1) {
         char c = read_serial();
@@ -252,29 +221,61 @@ void shell_run(void) {
             write_serial('\n');
             buffer[idx] = '\0';
 
-            if (strcmp(buffer, "help") == 0) {
+            if (emergency_lockdown && strcmp(buffer, "reset") != 0) {
+                print_serial("[CRITICAL] EMERGENCY LOCKDOWN ACTIVE. System Frozen. Type 'reset' to recover.\n");
+            } else if (strcmp(buffer, "help") == 0) {
                 print_serial("Available Commands:\n");
-                print_serial("  help    - Show this menu\n");
-                print_serial("  info    - Microkernel status\n");
-                print_serial("  test    - Queue authentic payload (Local IP)\n");
-                print_serial("  tamper  - Inject rogue IP payload (192.168.1.137)\n");
-                print_serial("  verify  - Run cryptographic integrity monitor\n");
-                print_serial("  clear   - Clear screen\n");
-            } else if (strcmp(buffer, "info") == 0) {
-                print_serial("[System Status]\n");
-                print_serial("  Kernel: Moksha Microkernel v0.4 (Threat Defense Core)\n");
-                print_serial("  Security: 256-bit Cryptographic Anti-Tamper Shield\n");
-            } else if (strcmp(buffer, "test") == 0) {
-                print_serial("[MIL-SHIELD] Enqueuing legitimate local payload...\n");
-                secure_ipc_send(10, 20, 1, "127.0.0.1", "SECURE_TRANSACTION_OK");
-                print_serial("[OK] 1 Payload queued. Type 'verify' to inspect.\n");
-            } else if (strcmp(buffer, "tamper") == 0) {
-                print_serial("[ALERT] Simulating rogue IP injection...\n");
-                secure_ipc_send(99, 20, 3, "192.168.1.137", "TRANSFER_100_CREDITS");
-                strcpy(ipc_bus[ipc_count - 1].data, "TRANSFER_999999_CREDITS");
-                print_serial("[WARNING] Payload tampered by 192.168.1.137! Type 'verify' to trigger defense.\n");
-            } else if (strcmp(buffer, "verify") == 0) {
-                secure_ipc_verify_and_dispatch();
+                print_serial("  admin-req    - Test Official Admin IP (10.0.0.1) Fast-Track VIP\n");
+                print_serial("  unknown-req  - Test Unknown IP access attempt\n");
+                print_serial("  approve      - Approve unknown request with Visitor Token\n");
+                print_serial("  deny         - Reject unknown request & launch Counter-Attack\n");
+                print_serial("  status       - Show security status\n");
+                print_serial("  reset        - Master reset for emergency gates\n");
+            } else if (strcmp(buffer, "admin-req") == 0) {
+                handle_ip_request(MASTER_ADMIN_IP, "EXECUTE_SYSTEM_CONFIG");
+            } else if (strcmp(buffer, "unknown-req") == 0) {
+                handle_ip_request("192.168.1.189", "ACCESS_SENSITIVE_STORAGE");
+            } else if (strcmp(buffer, "approve") == 0) {
+                if (!pending_authorization) {
+                    print_serial("[INFO] No pending requests to approve.\n");
+                } else {
+                    visitor_seed = (visitor_seed * 1103515245 + 12345) & 0x7FFFFFFF;
+                    int visitor_id = 1000 + (visitor_seed % 9000);
+                    pending_authorization = 0;
+                    print_serial("\n[MOKSHA APPROVED] Temporary Visitor Token Generated!\n");
+                    print_serial("-> Pass ID: [VISITOR-");
+                    print_dec(visitor_id);
+                    print_serial("] for IP: ");
+                    print_serial(pending_ip);
+                    print_serial("\n-> Gates: TEMPORARILY OPEN (Monitored & Logged)\n");
+                }
+            } else if (strcmp(buffer, "deny") == 0) {
+                if (!pending_authorization) {
+                    print_serial("[INFO] No pending requests to deny.\n");
+                } else {
+                    pending_authorization = 0;
+                    emergency_lockdown = 1;
+                    print_serial("\n*******************************************************\n");
+                    print_serial("[MOKSHA REJECTED] UNKNOWN IP ATTACK DETECTED!\n");
+                    print_serial("-> INITIATING AUTOMATIC DEFENSIVE COUNTER-STRIKE ON: ");
+                    print_serial(pending_ip);
+                    print_serial("\n-> IP ");
+                    print_serial(pending_ip);
+                    print_serial(" PERMANENTLY BLACKLISTED!\n");
+                    print_serial("-> EMERGENCY GATES ENGAGED: FULL KERNEL LOCKDOWN APPLIED!\n");
+                    print_serial("*******************************************************\n");
+                }
+            } else if (strcmp(buffer, "status") == 0) {
+                print_serial("[Sentinel Dual-Tier Firewall Status]\n");
+                print_serial("  Official Master IP: 10.0.0.1 (VIP Fast-Track)\n");
+                print_serial("  Emergency Lockdown: ");
+                print_serial(emergency_lockdown ? "ACTIVE (SYSTEM IS FROZEN)\n" : "NORMAL (SECURE)\n");
+                print_serial("  Pending Alert: ");
+                print_serial(pending_authorization ? "YES (Waiting for Moksha Decision)\n" : "NONE\n");
+            } else if (strcmp(buffer, "reset") == 0) {
+                emergency_lockdown = 0;
+                pending_authorization = 0;
+                print_serial("[MASTER OVERRIDE] Emergency lockdown lifted. Firewall reset to normal.\n");
             } else if (strcmp(buffer, "clear") == 0) {
                 print_serial("\033[2J\033[H");
             } else {
@@ -284,7 +285,7 @@ void shell_run(void) {
             }
 
             idx = 0;
-            print_serial("moksha-shield> ");
+            print_serial("moksha-sentinel> ");
         } else if (c == 0x7F || c == '\b') {
             if (idx > 0) {
                 idx--;
@@ -300,16 +301,17 @@ void shell_run(void) {
 void kernel_main(void) {
     init_serial();
     print_serial("\n========================================\n");
-    print_serial("[MOKSHA KERNEL] Booting v0.4 (Threat Defense Core)...\n");
-    print_serial("[OK] Serial Driver Loaded.\n");
+    print_serial("[MOKSHA KERNEL] Booting v0.5 (Sentinel Dual-Tier Firewall)...\n");
+    print_serial("[OK] Serial Driver Active.\n");
 
     init_gdt();
-    print_serial("[OK] GDT Ring 0 Protection Active.\n");
+    print_serial("[OK] GDT Security Ring Active.\n");
 
     init_idt();
     print_serial("[OK] IDT Shield Loaded.\n");
 
-    print_serial("[OK] Anti-Tamper Cryptographic Core Active!\n");
+    print_serial("[OK] Master IP (10.0.0.1) Fast-Track Online!\n");
+    print_serial("[OK] 2FA Unknown IP Notification Shield Active!\n");
     print_serial("========================================\n");
 
     shell_run();
