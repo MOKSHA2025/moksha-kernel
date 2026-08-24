@@ -35,7 +35,7 @@ struct idt_ptr_struct {
 struct idt_entry_struct idt_entries[256];
 struct idt_ptr_struct   idt_ptr;
 
-/* Secure IPC Message Structure with Origin IP */
+/* Secure IPC Message Structure */
 struct secure_ipc_message {
     int sender_id;
     int receiver_id;
@@ -172,7 +172,7 @@ void secure_ipc_verify_and_dispatch(void) {
         
         print_serial("MSG [");
         print_dec(i + 1);
-        print_serial("] Node: ");
+        print_serial("] IP: ");
         print_serial(ipc_bus[i].origin_node);
         print_serial(" | Data: \"");
         print_serial(ipc_bus[i].data);
@@ -245,6 +245,9 @@ void shell_run(void) {
         char c = read_serial();
 
         if (c == '\r' || c == '\n') {
+            if (idx == 0) {
+                continue;
+            }
             write_serial('\r');
             write_serial('\n');
             buffer[idx] = '\0';
@@ -274,7 +277,7 @@ void shell_run(void) {
                 secure_ipc_verify_and_dispatch();
             } else if (strcmp(buffer, "clear") == 0) {
                 print_serial("\033[2J\033[H");
-            } else if (idx > 0) {
+            } else {
                 print_serial("Unknown command: ");
                 print_serial(buffer);
                 print_serial("\n");
@@ -287,7 +290,7 @@ void shell_run(void) {
                 idx--;
                 print_serial("\b \b");
             }
-        } else if (idx < 63) {
+        } else if (idx < 63 && c >= 32 && c <= 126) {
             buffer[idx++] = c;
             write_serial(c);
         }
