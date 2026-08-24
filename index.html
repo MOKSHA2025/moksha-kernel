@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moksha Microkernel - Live Demo</title>
+    <style>
+        body { background: #0d1117; color: #58a6ff; font-family: monospace; padding: 20px; text-align: center; }
+        .box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; max-width: 700px; margin: auto; text-align: left; }
+        h1 { color: #3fb950; font-size: 20px; }
+        pre { background: #000; color: #00ff66; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .tag { background: #238636; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>[MOKSHA KERNEL] Live Architecture Console</h1>
+        <p><span class="tag">Status: Online</span> <b>Arch:</b> x86 Protected Mode | <b>Kernel:</b> v0.1 Bare-Metal</p>
+        <hr style="border-color: #30363d;">
+        <pre>
+========================================
+[MOKSHA KERNEL] Booting Microkernel...
+[OK] Serial Driver Loaded.
+[OK] GDT (Global Descriptor Table) Loaded.
+[OK] IDT (Interrupt Descriptor Table) Loaded.
+[OK] Microkernel Core Online!
+========================================
+
+Type 'help', 'info', or 'clear' to interact with Moksha Shell.
+moksha-os> info
+[System Info]
+  Kernel: Moksha Microkernel (v0.1)
+  Arch: x86 Bare-Metal (Protected Mode)
+  Status: GDT Active, IDT Active, I/O Active
+moksha-os> </pre>
+        <p style="color: #8b949e; font-size: 13px;">Built entirely from scratch via Termux on Mobile. Zero external dependencies.</p>
+    </div>
+</body>
+</html>
