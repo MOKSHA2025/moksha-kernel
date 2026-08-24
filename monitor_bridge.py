@@ -1,6 +1,7 @@
-import requests
+import urllib.request
+import urllib.parse
+import json
 import subprocess
-import threading
 import sys
 
 BOT_TOKEN = "8178324920:AAE2wBcWYCEufF6sWJLi6iZLfOWZ3wG1O6s"
@@ -13,13 +14,14 @@ def send_tg(msg):
         "text": f"🛡️ *[MOKSHA SENTINEL SECURITY ALERT]*\n\n{msg}",
         "parse_mode": "Markdown"
     }
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
     try:
-        requests.post(url, json=payload, timeout=5)
-    except:
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
         pass
 
 def listen_and_relay():
-    # Start QEMU process
     proc = subprocess.Popen(
         ["qemu-system-x86_64", "-kernel", "mykernel.bin", "-display", "none", "-serial", "stdio"],
         stdin=sys.stdin,
