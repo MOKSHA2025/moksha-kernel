@@ -35,11 +35,12 @@ struct idt_ptr_struct {
 struct idt_entry_struct idt_entries[256];
 struct idt_ptr_struct   idt_ptr;
 
-/* Military-Grade Secure IPC Message Structure */
+/* Secure IPC Message Structure with Origin IP */
 struct secure_ipc_message {
     int sender_id;
     int receiver_id;
     int type;
+    char origin_node[20];
     char data[32];
     unsigned int integrity_hash;
 };
@@ -145,7 +146,7 @@ unsigned int calculate_integrity_hash(const char *data, int sender, int receiver
     return hash;
 }
 
-int secure_ipc_send(int sender, int receiver, int type, const char *data) {
+int secure_ipc_send(int sender, int receiver, int type, const char *origin, const char *data) {
     if (ipc_count >= IPC_QUEUE_SIZE) {
         print_serial("[ERR] Queue Full!\n");
         return -1;
@@ -153,6 +154,7 @@ int secure_ipc_send(int sender, int receiver, int type, const char *data) {
     ipc_bus[ipc_count].sender_id = sender;
     ipc_bus[ipc_count].receiver_id = receiver;
     ipc_bus[ipc_count].type = type;
+    strcpy(ipc_bus[ipc_count].origin_node, origin);
     strcpy(ipc_bus[ipc_count].data, data);
     ipc_bus[ipc_count].integrity_hash = calculate_integrity_hash(data, sender, receiver);
     ipc_count++;
@@ -164,26 +166,26 @@ void secure_ipc_verify_and_dispatch(void) {
         print_serial("[MIL-SHIELD] No secure messages in queue.\n");
         return;
     }
-    print_serial("\n=== [CRYPTOGRAPHIC INTEGRITY VERIFICATION] ===\n");
+    print_serial("\n=== [CRYPTOGRAPHIC THREAT & INTEGRITY MONITOR] ===\n");
     for (int i = 0; i < ipc_count; i++) {
         unsigned int computed = calculate_integrity_hash(ipc_bus[i].data, ipc_bus[i].sender_id, ipc_bus[i].receiver_id);
         
         print_serial("MSG [");
         print_dec(i + 1);
-        print_serial("] Src: ");
-        print_dec(ipc_bus[i].sender_id);
-        print_serial(" -> Dst: ");
-        print_dec(ipc_bus[i].receiver_id);
-        print_serial(" | Hash: ");
+        print_serial("] Node: ");
+        print_serial(ipc_bus[i].origin_node);
+        print_serial(" | Data: \"");
+        print_serial(ipc_bus[i].data);
+        print_serial("\" | Hash: ");
         print_hex(ipc_bus[i].integrity_hash);
         
         if (computed == ipc_bus[i].integrity_hash) {
             print_serial(" | [VERIFIED SECURE]\n");
         } else {
-            print_serial(" | [TAMPER DETECTED]\n");
+            print_serial(" | [TAMPER DETECTED! ACCESS DENIED]\n");
         }
     }
-    print_serial("[OK] Cryptographic authentication successful.\n");
+    print_serial("[OK] Security audit complete.\n");
     ipc_count = 0;
 }
 
@@ -236,7 +238,7 @@ void shell_run(void) {
     char buffer[64];
     int idx = 0;
 
-    print_serial("\nCommands: 'test', 'verify', 'info', 'help', 'clear'\n");
+    print_serial("\nCommands: 'test', 'tamper', 'verify', 'info', 'help', 'clear'\n");
     print_serial("moksha-shield> ");
 
     while (1) {
@@ -250,21 +252,25 @@ void shell_run(void) {
             if (strcmp(buffer, "help") == 0) {
                 print_serial("Available Commands:\n");
                 print_serial("  help    - Show this menu\n");
-                print_serial("  info    - Microkernel security status\n");
-                print_serial("  test    - Queue encrypted military-grade messages\n");
-                print_serial("  verify  - Verify hash integrity and dispatch\n");
+                print_serial("  info    - Microkernel status\n");
+                print_serial("  test    - Queue authentic payload (Local IP)\n");
+                print_serial("  tamper  - Inject rogue IP payload (192.168.1.137)\n");
+                print_serial("  verify  - Run cryptographic integrity monitor\n");
                 print_serial("  clear   - Clear screen\n");
             } else if (strcmp(buffer, "info") == 0) {
                 print_serial("[System Status]\n");
-                print_serial("  Kernel: Moksha Microkernel v0.4 (Military Shield)\n");
-                print_serial("  Security: 256-bit Hash Integrity Enabled\n");
-                print_serial("  Status: GDT Active, IDT Shielded, Ring 0 Safe\n");
-            } else if (strcmp(buffer, "test") == 0 || strcmp(buffer, "mil-test") == 0) {
-                print_serial("[MIL-SHIELD] Enqueuing encrypted payloads...\n");
-                secure_ipc_send(10, 20, 1, "TOP_SECRET_CORE_DATA");
-                secure_ipc_send(20, 10, 2, "SECURE_ACK_VERIFIED");
-                print_serial("[OK] 2 Secured payloads queued. Type 'verify' now.\n");
-            } else if (strcmp(buffer, "verify") == 0 || strcmp(buffer, "mil-verify") == 0) {
+                print_serial("  Kernel: Moksha Microkernel v0.4 (Threat Defense Core)\n");
+                print_serial("  Security: 256-bit Cryptographic Anti-Tamper Shield\n");
+            } else if (strcmp(buffer, "test") == 0) {
+                print_serial("[MIL-SHIELD] Enqueuing legitimate local payload...\n");
+                secure_ipc_send(10, 20, 1, "127.0.0.1", "SECURE_TRANSACTION_OK");
+                print_serial("[OK] 1 Payload queued. Type 'verify' to inspect.\n");
+            } else if (strcmp(buffer, "tamper") == 0) {
+                print_serial("[ALERT] Simulating rogue IP injection...\n");
+                secure_ipc_send(99, 20, 3, "192.168.1.137", "TRANSFER_100_CREDITS");
+                strcpy(ipc_bus[ipc_count - 1].data, "TRANSFER_999999_CREDITS");
+                print_serial("[WARNING] Payload tampered by 192.168.1.137! Type 'verify' to trigger defense.\n");
+            } else if (strcmp(buffer, "verify") == 0) {
                 secure_ipc_verify_and_dispatch();
             } else if (strcmp(buffer, "clear") == 0) {
                 print_serial("\033[2J\033[H");
@@ -291,16 +297,16 @@ void shell_run(void) {
 void kernel_main(void) {
     init_serial();
     print_serial("\n========================================\n");
-    print_serial("[MOKSHA KERNEL] Booting v0.4 (Military Shield)...\n");
-    print_serial("[OK] Hardware Serial Loaded.\n");
+    print_serial("[MOKSHA KERNEL] Booting v0.4 (Threat Defense Core)...\n");
+    print_serial("[OK] Serial Driver Loaded.\n");
 
     init_gdt();
-    print_serial("[OK] GDT Security Ring Loaded.\n");
+    print_serial("[OK] GDT Ring 0 Protection Active.\n");
 
     init_idt();
     print_serial("[OK] IDT Shield Loaded.\n");
 
-    print_serial("[OK] Military Grade Cryptographic Core Active!\n");
+    print_serial("[OK] Anti-Tamper Cryptographic Core Active!\n");
     print_serial("========================================\n");
 
     shell_run();
