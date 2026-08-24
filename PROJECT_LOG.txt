@@ -1,7 +1,7 @@
-PROJECT ENGINEERING LOG: MOKSHA MICROKERNEL (v0.3)
+PROJECT ENGINEERING LOG: MOKSHA MICROKERNEL (v0.4)
 ==================================================
 Project Name: Moksha Microkernel
-Version: 0.3 (Hurd-Style Microkernel IPC Release)
+Version: 0.4 (Military Shield Core Release)
 Architecture: x86 32-bit Protected Mode (i686-none-elf)
 Platform: Termux on Android
 Toolchain: LLVM/Clang, LLD, QEMU (Bare-Metal)
@@ -11,15 +11,15 @@ COMPLETED MILESTONES & SUBSYSTEMS:
 1. Multiboot Bootstrap (boot.s) - 32-bit Entry & 16KB Stack
 2. Memory Layout (linker.ld) - 1MB Base Physical Load Address
 3. UART COM1 Driver (kernel.c) - 38400 Baud Bidirectional Serial I/O
-4. Global Descriptor Table - GDT (kernel.c) - 4GB Flat Model
-5. Interrupt Descriptor Table - IDT (kernel.c) - 256 Exception Gates
-6. Interactive Shell (kernel.c) - Event-driven CLI Interface
-7. Hurd-Style IPC Engine (kernel.c) - Synchronous Message Bus
+4. Global Descriptor Table - GDT (kernel.c) - 4GB Flat Model Security Ring
+5. Interrupt Descriptor Table - IDT (kernel.c) - 256 Exception/Trap Gates
+6. Interactive Shell (kernel.c) - Event-driven CLI Interface (moksha-shield>)
+7. Hurd-Style IPC Bus (kernel.c) - Synchronous Message System
+8. Military Shield Core (kernel.c) - 256-bit Cryptographic Hash Integrity Engine
 
 BUILT-IN COMMANDS:
-- help     : Show available commands
-- info     : Kernel metadata and subsystem status
-- ipc-test : Enqueue sample Hurd-style IPC messages
-- ipc-run  : Dispatch & route messages across servers
-- clear    : Clear terminal screen via ANSI escapes
-- reboot   : Trigger 8042 PS/2 controller hardware reset
+- help    : Show security help menu
+- info    : Microkernel v0.4 security status
+- test    : Queue encrypted military-grade payload messages
+- verify  : Execute cryptographic hash integrity check
+- clear   : Clear terminal screen via ANSI escapes
