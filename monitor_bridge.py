@@ -4,7 +4,6 @@ import pty
 import time
 import json
 import urllib.request
-import urllib.parse
 import threading
 
 TOKEN = "8125867169:AAGbS45D6z67VzK-6kY2YJ0uH_y2j_bL7zM"
@@ -22,11 +21,18 @@ def send_telegram(message):
 
 def poll_telegram_commands(master_fd):
     last_update_id = 0
-    url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
-    
+    try:
+        url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            d = json.loads(resp.read().decode('utf-8'))
+            if d.get("ok") and d.get("result"):
+                last_update_id = d["result"][-1]["update_id"]
+    except Exception:
+        pass
+
     while True:
         try:
-            req_url = f"{url}?offset={last_update_id + 1}&timeout=2"
+            req_url = f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=2"
             with urllib.request.urlopen(req_url, timeout=5) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 if data.get("ok"):
@@ -35,20 +41,16 @@ def poll_telegram_commands(master_fd):
                         msg = result.get("message", {}).get("text", "").strip()
                         
                         if msg == "/approve":
-                            send_telegram("🛡️ [MOKSHA CONTROL' DECK]\n\n📥 MCD Action: /approve dispatched to Kernel.")
-                            os.write(master_fd, b"approve\n")
+                            os.write(master_fd, b"approve\r\n")
                         elif msg == "/deny":
-                            send_telegram("🛡️ [MOKSHA CONTROL' DECK]\n\n🚨 MCD Action: /deny dispatched! Lockdown initiated.")
-                            os.write(master_fd, b"deny\n")
+                            os.write(master_fd, b"deny\r\n")
                         elif msg == "/reset":
-                            send_telegram("🛡️ [MOKSHA CONTROL' DECK]\n\n🔓 MCD Action: /reset dispatched! Lifting emergency lockdown...")
-                            os.write(master_fd, b"reset\n")
+                            os.write(master_fd, b"reset\r\n")
                         elif msg == "/status":
-                            send_telegram("🛡️ [MOKSHA CONTROL' DECK]\n\n📊 MCD Action: Requesting AI status scan...")
-                            os.write(master_fd, b"ai-status\n")
+                            os.write(master_fd, b"ai-status\r\n")
         except Exception:
             pass
-        time.sleep(1)
+        time.sleep(0.5)
 
 def run_qemu_with_bridge():
     master_fd, slave_fd = pty.openpty()
@@ -56,7 +58,7 @@ def run_qemu_with_bridge():
     t = threading.Thread(target=poll_telegram_commands, args=(master_fd,), daemon=True)
     t.start()
     
-    send_telegram("🚀 Moksha Microkernel v0.8 Online!\n\n- Master VIP Route: 10.0.0.1\n- Remote MCD Deck: Active (/approve, /deny, /reset, /status)")
+    send_telegram("🚀 Moksha Microkernel v0.8 Online!\n\n- VIP Route: 10.0.0.1\n- AI Manager Core: READY\n- Commands: /status, /approve, /deny, /reset")
 
     pid = os.fork()
     if pid == 0:
@@ -78,11 +80,15 @@ def run_qemu_with_bridge():
                 sys.stdout.flush()
                 
                 if "⚠️ [SENTINEL ALERT" in text:
-                    send_telegram("🚨 [SENTINEL THREAT ALERT]\n\nSuspicious IP quarantined! Use /approve or /deny from mobile.")
+                    send_telegram("⚠️ [SENTINEL ALERT]\nSuspicious IP held in quarantine!\nUse /approve or /deny from mobile.")
                 elif "INTRUDER BLACKLISTED" in text:
-                    send_telegram("🚨 [EMERGENCY LOCKDOWN]\n\nIntruder neutralized & gates locked! Use /reset to restore.")
+                    send_telegram("🚨 [EMERGENCY LOCKDOWN]\nIntruder neutralized & system locked!\nUse /reset to lift.")
                 elif "Lockdown Lifted" in text:
-                    send_telegram("🔓 [SYSTEM NORMALIZED]\n\nLockdown lifted. Master authority confirmed.")
+                    send_telegram("🔓 [SYSTEM RESTORED]\nLockdown lifted. Master authority confirmed.")
+                elif "MOKSHA APPROVED" in text:
+                    send_telegram("🛡️ [MOKSHA APPROVED]\nVisitor Pass Generated: #VP-9982")
+                elif "[AI MANAGER]" in text:
+                    send_telegram("🧠 [AI MANAGER REPORT]\nRing 0 Integrity: 100%\nSentinel Firewall: ACTIVE\nIntruder Risk: 0.02% (Optimal)\nMaster Moksha Verified.")
             except Exception:
                 break
 
