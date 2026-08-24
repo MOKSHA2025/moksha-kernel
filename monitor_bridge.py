@@ -4,19 +4,22 @@ import json
 import subprocess
 import threading
 import time
+import os
+import pty
+import select
 import sys
 
 BOT_TOKEN = "8178324920:AAE2wBcWYCEufF6sWJLi6iZLfOWZ3wG1O6s"
 CHAT_ID = "8657781941"
 
-kernel_process = None
+master_fd = None
 last_update_id = 0
 
 def send_tg(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
-        "text": f"🛡️ *[MOKSHA SENTINEL 2-WAY CONTROL]*\n\n{msg}",
+        "text": f"🛡️ *[MOKSHA CONTROL' DECK]*\n\n{msg}",
         "parse_mode": "Markdown"
     }
     data = json.dumps(payload).encode('utf-8')
@@ -27,12 +30,12 @@ def send_tg(msg):
         pass
 
 def telegram_poller():
-    global last_update_id
+    global last_update_id, master_fd
     while True:
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=30"
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=10"
             req = urllib.request.Request(url)
-            response = urllib.request.urlopen(req, timeout=35)
+            response = urllib.request.urlopen(req, timeout=15)
             data = json.loads(response.read().decode('utf-8'))
             
             if data.get("ok"):
@@ -42,47 +45,71 @@ def telegram_poller():
                     text = message.get("text", "").strip()
                     sender_chat = str(message.get("chat", {}).get("id", ""))
                     
-                    if sender_chat == CHAT_ID and kernel_process and kernel_process.poll() is None:
+                    if sender_chat == CHAT_ID and master_fd is not None:
                         if text == "/approve":
-                            kernel_process.stdin.write("approve\n")
-                            kernel_process.stdin.flush()
-                            send_tg("📥 *Command Received from Telegram:* `/approve`\nForwarded to Moksha Kernel Core.")
+                            os.write(master_fd, b"approve\r\n")
+                            send_tg("📥 *MCD Action Executed:* `/approve` forwarded to Kernel Core.")
                         elif text == "/deny":
-                            kernel_process.stdin.write("deny\n")
-                            kernel_process.stdin.flush()
-                            send_tg("📥 *Command Received from Telegram:* `/deny`\nForwarded to Moksha Kernel Core.")
+                            os.write(master_fd, b"deny\r\n")
+                            send_tg("📥 *MCD Action Executed:* `/deny` forwarded to Kernel Core.")
         except Exception:
-            time.sleep(2)
+            time.sleep(1)
 
-def start_kernel():
-    global kernel_process
-    kernel_process = subprocess.Popen(
+def run_system():
+    global master_fd
+    
+    send_tg("🚀 *Moksha Microkernel Booted!*\n\n- Master IP: `10.0.0.1` (VIP Route)\n- MCD 2-Way Command Channel: `ONLINE`\n- Ready for real-time monitoring.")
+
+    master, slave = pty.openpty()
+    master_fd = master
+
+    proc = subprocess.Popen(
         ["qemu-system-x86_64", "-kernel", "mykernel.bin", "-display", "none", "-serial", "stdio"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        close_fds=True
     )
+    os.close(slave)
 
-    send_tg("🚀 *Moksha Microkernel v0.5 Booted!*\n\n- 2-Way Telegram Polling: `ACTIVE`\n- Master IP: `10.0.0.1`\n- Ready for remote `/approve` or `/deny` commands.")
-
-    # Start Telegram background polling thread
+    # Start Telegram background thread
     t = threading.Thread(target=telegram_poller, daemon=True)
     t.start()
 
-    for line in kernel_process.stdout:
-        sys.stdout.write(line)
-        sys.stdout.flush()
+    line_buffer = ""
+    
+    # Non-blocking IO loop between Terminal & QEMU
+    try:
+        while proc.poll() is None:
+            r, _, _ = select.select([master, sys.stdin.fileno()], [], [], 0.05)
+            
+            if master in r:
+                data = os.read(master, 1024).decode('utf-8', errors='ignore')
+                if not data:
+                    break
+                sys.stdout.write(data)
+                sys.stdout.flush()
+                
+                line_buffer += data
+                if "\n" in line_buffer or "\r" in line_buffer:
+                    if "[SENTINEL ALERT -> NOTIFICATION" in line_buffer:
+                        send_tg("⚠️ *UNAUTHORIZED IP DETECTED!*\n\nForeign IP attempt held in quarantine.\n👉 Send `/approve` or `/deny` from MCD to control gates.")
+                    elif "[MOKSHA APPROVED]" in line_buffer:
+                        send_tg("✅ *ACCESS GRANTED*\n\nTemporary Visitor Pass unlocked by Master.")
+                    elif "[MOKSHA REJECTED]" in line_buffer:
+                        send_tg("🚨 *CRITICAL SECURITY STRIKE!*\n\nIntruder Counter-Attacked and Blacklisted!\n*EMERGENCY GATES FULL LOCKDOWN ENGAGED!*")
+                    elif "[MASTER OVERRIDE]" in line_buffer:
+                        send_tg("🔓 *MASTER RESET*\n\nEmergency lockdown lifted.")
+                    line_buffer = ""
 
-        if "[SENTINEL ALERT -> NOTIFICATION" in line:
-            send_tg("⚠️ *UNAUTHORIZED IP DETECTED!*\n\nForeign IP attempt held in quarantine.\n👉 Send `/approve` or `/deny` directly in chat to control gates.")
-        elif "[MOKSHA APPROVED]" in line:
-            send_tg("✅ *ACCESS GRANTED*\n\nTemporary Visitor Pass unlocked via Telegram command.")
-        elif "[MOKSHA REJECTED]" in line:
-            send_tg("🚨 *CRITICAL SECURITY STRIKE!*\n\nIntruder Counter-Attacked and Blacklisted!\n*EMERGENCY GATES FULL LOCKDOWN ENGAGED!*")
-        elif "[MASTER OVERRIDE]" in line:
-            send_tg("🔓 *MASTER RESET*\n\nEmergency lockdown lifted.")
+            if sys.stdin.fileno() in r:
+                user_in = os.read(sys.stdin.fileno(), 1024)
+                os.write(master, user_in)
+    except Exception:
+        pass
+    finally:
+        os.close(master)
+        proc.kill()
 
 if __name__ == "__main__":
-    start_kernel()
+    run_system()
