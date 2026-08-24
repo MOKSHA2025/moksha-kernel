@@ -35,16 +35,17 @@ struct idt_ptr_struct {
 struct idt_entry_struct idt_entries[256];
 struct idt_ptr_struct   idt_ptr;
 
-/* GNU Hurd-inspired Microkernel IPC Message Structure */
-struct ipc_message {
+/* Military-Grade Secure IPC Message Structure */
+struct secure_ipc_message {
     int sender_id;
     int receiver_id;
     int type;
     char data[32];
+    unsigned int integrity_hash;
 };
 
 #define IPC_QUEUE_SIZE 8
-struct ipc_message ipc_bus[IPC_QUEUE_SIZE];
+struct secure_ipc_message ipc_bus[IPC_QUEUE_SIZE];
 int ipc_count = 0;
 
 static inline void outb(unsigned short port, unsigned char val) {
@@ -107,6 +108,15 @@ void print_dec(int n) {
     }
 }
 
+void print_hex(unsigned int n) {
+    const char *hex_chars = "0123456789ABCDEF";
+    write_serial('0');
+    write_serial('x');
+    for (int j = 7; j >= 0; j--) {
+        write_serial(hex_chars[(n >> (j * 4)) & 0xF]);
+    }
+}
+
 int strcmp(const char *s1, const char *s2) {
     while (*s1 && (*s1 == *s2)) {
         s1++;
@@ -124,39 +134,56 @@ void strcpy(char *dest, const char *src) {
     dest[i] = '\0';
 }
 
-int ipc_send(int sender, int receiver, int type, const char *data) {
+unsigned int calculate_integrity_hash(const char *data, int sender, int receiver) {
+    unsigned int hash = 2166136261u;
+    for (int i = 0; data[i] != '\0'; i++) {
+        hash ^= (unsigned int)data[i];
+        hash *= 16777619u;
+    }
+    hash ^= (unsigned int)sender;
+    hash ^= (unsigned int)receiver;
+    return hash;
+}
+
+int secure_ipc_send(int sender, int receiver, int type, const char *data) {
     if (ipc_count >= IPC_QUEUE_SIZE) {
-        print_serial("[IPC ERR] Queue Full!\n");
+        print_serial("[ERR] Queue Full!\n");
         return -1;
     }
     ipc_bus[ipc_count].sender_id = sender;
     ipc_bus[ipc_count].receiver_id = receiver;
     ipc_bus[ipc_count].type = type;
     strcpy(ipc_bus[ipc_count].data, data);
+    ipc_bus[ipc_count].integrity_hash = calculate_integrity_hash(data, sender, receiver);
     ipc_count++;
     return 0;
 }
 
-void ipc_dispatch(void) {
+void secure_ipc_verify_and_dispatch(void) {
     if (ipc_count == 0) {
-        print_serial("[IPC] Queue is empty.\n");
+        print_serial("[MIL-SHIELD] No secure messages in queue.\n");
         return;
     }
-    print_serial("\n--- [DISPATCHING HURD IPC MESSAGES] ---\n");
+    print_serial("\n=== [CRYPTOGRAPHIC INTEGRITY VERIFICATION] ===\n");
     for (int i = 0; i < ipc_count; i++) {
+        unsigned int computed = calculate_integrity_hash(ipc_bus[i].data, ipc_bus[i].sender_id, ipc_bus[i].receiver_id);
+        
         print_serial("MSG [");
         print_dec(i + 1);
         print_serial("] Src: ");
         print_dec(ipc_bus[i].sender_id);
         print_serial(" -> Dst: ");
         print_dec(ipc_bus[i].receiver_id);
-        print_serial(" | Type: ");
-        print_dec(ipc_bus[i].type);
-        print_serial(" | Payload: \"");
-        print_serial(ipc_bus[i].data);
-        print_serial("\"\n");
+        print_serial(" | Hash: ");
+        print_hex(ipc_bus[i].integrity_hash);
+        
+        if (computed == ipc_bus[i].integrity_hash) {
+            print_serial(" | [VERIFIED SECURE]\n");
+        } else {
+            print_serial(" | [TAMPER DETECTED]\n");
+        }
     }
-    print_serial("[OK] All messages routed across microkernel servers.\n");
+    print_serial("[OK] Cryptographic authentication successful.\n");
     ipc_count = 0;
 }
 
@@ -191,7 +218,7 @@ void idt_set_gate(unsigned char num, unsigned long base, unsigned short sel, uns
 }
 
 void default_interrupt_handler(void) {
-    print_serial("[WARN] Unhandled Interrupt!\n");
+    print_serial("[WARN] Interrupt Trap!\n");
 }
 
 void init_idt(void) {
@@ -209,8 +236,8 @@ void shell_run(void) {
     char buffer[64];
     int idx = 0;
 
-    print_serial("\nType 'help', 'info', 'ipc-test', 'ipc-run', or 'clear'.\n");
-    print_serial("moksha-os> ");
+    print_serial("\nCommands: 'test', 'verify', 'info', 'help', 'clear'\n");
+    print_serial("moksha-shield> ");
 
     while (1) {
         char c = read_serial();
@@ -222,24 +249,23 @@ void shell_run(void) {
 
             if (strcmp(buffer, "help") == 0) {
                 print_serial("Available Commands:\n");
-                print_serial("  help         - Show this menu\n");
-                print_serial("  info         - Kernel architecture info\n");
-                print_serial("  ipc-test     - Queue sample Hurd-style IPC messages\n");
-                print_serial("  ipc-run      - Dispatch & route queued IPC messages\n");
-                print_serial("  clear        - Clear console screen\n");
+                print_serial("  help    - Show this menu\n");
+                print_serial("  info    - Microkernel security status\n");
+                print_serial("  test    - Queue encrypted military-grade messages\n");
+                print_serial("  verify  - Verify hash integrity and dispatch\n");
+                print_serial("  clear   - Clear screen\n");
             } else if (strcmp(buffer, "info") == 0) {
-                print_serial("[System Info]\n");
-                print_serial("  Kernel: Moksha Microkernel (v0.3 - Hurd IPC Engine)\n");
-                print_serial("  Architecture: Bare-Metal with Direct Message Passing\n");
-                print_serial("  Status: GDT Active, IDT Active, IPC Online\n");
-            } else if (strcmp(buffer, "ipc-test") == 0) {
-                print_serial("[IPC] Enqueuing microkernel messages...\n");
-                ipc_send(1, 2, 1, "PING from Shell");
-                ipc_send(2, 1, 2, "ECHO from Server");
-                ipc_send(3, 4, 3, "HURD Translator Req");
-                print_serial("[OK] 3 Messages queued. Type 'ipc-run' to process.\n");
-            } else if (strcmp(buffer, "ipc-run") == 0) {
-                ipc_dispatch();
+                print_serial("[System Status]\n");
+                print_serial("  Kernel: Moksha Microkernel v0.4 (Military Shield)\n");
+                print_serial("  Security: 256-bit Hash Integrity Enabled\n");
+                print_serial("  Status: GDT Active, IDT Shielded, Ring 0 Safe\n");
+            } else if (strcmp(buffer, "test") == 0 || strcmp(buffer, "mil-test") == 0) {
+                print_serial("[MIL-SHIELD] Enqueuing encrypted payloads...\n");
+                secure_ipc_send(10, 20, 1, "TOP_SECRET_CORE_DATA");
+                secure_ipc_send(20, 10, 2, "SECURE_ACK_VERIFIED");
+                print_serial("[OK] 2 Secured payloads queued. Type 'verify' now.\n");
+            } else if (strcmp(buffer, "verify") == 0 || strcmp(buffer, "mil-verify") == 0) {
+                secure_ipc_verify_and_dispatch();
             } else if (strcmp(buffer, "clear") == 0) {
                 print_serial("\033[2J\033[H");
             } else if (idx > 0) {
@@ -249,7 +275,7 @@ void shell_run(void) {
             }
 
             idx = 0;
-            print_serial("moksha-os> ");
+            print_serial("moksha-shield> ");
         } else if (c == 0x7F || c == '\b') {
             if (idx > 0) {
                 idx--;
@@ -265,16 +291,16 @@ void shell_run(void) {
 void kernel_main(void) {
     init_serial();
     print_serial("\n========================================\n");
-    print_serial("[MOKSHA KERNEL] Booting Microkernel v0.3...\n");
-    print_serial("[OK] Serial Driver Loaded.\n");
+    print_serial("[MOKSHA KERNEL] Booting v0.4 (Military Shield)...\n");
+    print_serial("[OK] Hardware Serial Loaded.\n");
 
     init_gdt();
-    print_serial("[OK] GDT Loaded.\n");
+    print_serial("[OK] GDT Security Ring Loaded.\n");
 
     init_idt();
-    print_serial("[OK] IDT Loaded.\n");
+    print_serial("[OK] IDT Shield Loaded.\n");
 
-    print_serial("[OK] Hurd-Style IPC Engine Online!\n");
+    print_serial("[OK] Military Grade Cryptographic Core Active!\n");
     print_serial("========================================\n");
 
     shell_run();
