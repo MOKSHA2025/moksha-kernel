@@ -35,6 +35,18 @@ struct idt_ptr_struct {
 struct idt_entry_struct idt_entries[256];
 struct idt_ptr_struct   idt_ptr;
 
+/* GNU Hurd-inspired Microkernel IPC Message Structure */
+struct ipc_message {
+    int sender_id;
+    int receiver_id;
+    int type;
+    char data[32];
+};
+
+#define IPC_QUEUE_SIZE 8
+struct ipc_message ipc_bus[IPC_QUEUE_SIZE];
+int ipc_count = 0;
+
 static inline void outb(unsigned short port, unsigned char val) {
     __asm__ __volatile__ ("outb %0, %1" : : "a"(val), "Nd"(port));
 }
@@ -75,12 +87,77 @@ void print_serial(const char *str) {
     }
 }
 
+void print_dec(int n) {
+    if (n == 0) {
+        write_serial('0');
+        return;
+    }
+    if (n < 0) {
+        write_serial('-');
+        n = -n;
+    }
+    char buf[12];
+    int i = 0;
+    while (n > 0) {
+        buf[i++] = (n % 10) + '0';
+        n /= 10;
+    }
+    for (int j = i - 1; j >= 0; j--) {
+        write_serial(buf[j]);
+    }
+}
+
 int strcmp(const char *s1, const char *s2) {
     while (*s1 && (*s1 == *s2)) {
         s1++;
         s2++;
     }
     return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+}
+
+void strcpy(char *dest, const char *src) {
+    int i = 0;
+    while (src[i] != '\0' && i < 31) {
+        dest[i] = src[i];
+        i++;
+    }
+    dest[i] = '\0';
+}
+
+int ipc_send(int sender, int receiver, int type, const char *data) {
+    if (ipc_count >= IPC_QUEUE_SIZE) {
+        print_serial("[IPC ERR] Queue Full!\n");
+        return -1;
+    }
+    ipc_bus[ipc_count].sender_id = sender;
+    ipc_bus[ipc_count].receiver_id = receiver;
+    ipc_bus[ipc_count].type = type;
+    strcpy(ipc_bus[ipc_count].data, data);
+    ipc_count++;
+    return 0;
+}
+
+void ipc_dispatch(void) {
+    if (ipc_count == 0) {
+        print_serial("[IPC] Queue is empty.\n");
+        return;
+    }
+    print_serial("\n--- [DISPATCHING HURD IPC MESSAGES] ---\n");
+    for (int i = 0; i < ipc_count; i++) {
+        print_serial("MSG [");
+        print_dec(i + 1);
+        print_serial("] Src: ");
+        print_dec(ipc_bus[i].sender_id);
+        print_serial(" -> Dst: ");
+        print_dec(ipc_bus[i].receiver_id);
+        print_serial(" | Type: ");
+        print_dec(ipc_bus[i].type);
+        print_serial(" | Payload: \"");
+        print_serial(ipc_bus[i].data);
+        print_serial("\"\n");
+    }
+    print_serial("[OK] All messages routed across microkernel servers.\n");
+    ipc_count = 0;
 }
 
 void gdt_set_gate(int num, unsigned long base, unsigned long limit, unsigned char access, unsigned char gran) {
@@ -132,7 +209,7 @@ void shell_run(void) {
     char buffer[64];
     int idx = 0;
 
-    print_serial("\nType 'help', 'info', or 'clear' to interact with Moksha Shell.\n");
+    print_serial("\nType 'help', 'info', 'ipc-test', 'ipc-run', or 'clear'.\n");
     print_serial("moksha-os> ");
 
     while (1) {
@@ -145,14 +222,24 @@ void shell_run(void) {
 
             if (strcmp(buffer, "help") == 0) {
                 print_serial("Available Commands:\n");
-                print_serial("  help  - Show this help message\n");
-                print_serial("  info  - Display microkernel architecture stats\n");
-                print_serial("  clear - Clear the terminal line\n");
+                print_serial("  help         - Show this menu\n");
+                print_serial("  info         - Kernel architecture info\n");
+                print_serial("  ipc-test     - Queue sample Hurd-style IPC messages\n");
+                print_serial("  ipc-run      - Dispatch & route queued IPC messages\n");
+                print_serial("  clear        - Clear console screen\n");
             } else if (strcmp(buffer, "info") == 0) {
                 print_serial("[System Info]\n");
-                print_serial("  Kernel: Moksha Microkernel (v0.1)\n");
-                print_serial("  Arch: x86 Bare-Metal (Protected Mode)\n");
-                print_serial("  Status: GDT Active, IDT Active, I/O Active\n");
+                print_serial("  Kernel: Moksha Microkernel (v0.3 - Hurd IPC Engine)\n");
+                print_serial("  Architecture: Bare-Metal with Direct Message Passing\n");
+                print_serial("  Status: GDT Active, IDT Active, IPC Online\n");
+            } else if (strcmp(buffer, "ipc-test") == 0) {
+                print_serial("[IPC] Enqueuing microkernel messages...\n");
+                ipc_send(1, 2, 1, "PING from Shell");
+                ipc_send(2, 1, 2, "ECHO from Server");
+                ipc_send(3, 4, 3, "HURD Translator Req");
+                print_serial("[OK] 3 Messages queued. Type 'ipc-run' to process.\n");
+            } else if (strcmp(buffer, "ipc-run") == 0) {
+                ipc_dispatch();
             } else if (strcmp(buffer, "clear") == 0) {
                 print_serial("\033[2J\033[H");
             } else if (idx > 0) {
@@ -178,16 +265,16 @@ void shell_run(void) {
 void kernel_main(void) {
     init_serial();
     print_serial("\n========================================\n");
-    print_serial("[MOKSHA KERNEL] Booting Microkernel...\n");
+    print_serial("[MOKSHA KERNEL] Booting Microkernel v0.3...\n");
     print_serial("[OK] Serial Driver Loaded.\n");
 
     init_gdt();
-    print_serial("[OK] GDT (Global Descriptor Table) Loaded.\n");
+    print_serial("[OK] GDT Loaded.\n");
 
     init_idt();
-    print_serial("[OK] IDT (Interrupt Descriptor Table) Loaded.\n");
+    print_serial("[OK] IDT Loaded.\n");
 
-    print_serial("[OK] Microkernel Core Online!\n");
+    print_serial("[OK] Hurd-Style IPC Engine Online!\n");
     print_serial("========================================\n");
 
     shell_run();
