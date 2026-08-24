@@ -3,8 +3,6 @@ typedef unsigned short uint16_t;
 typedef unsigned int uint32_t;
 
 #define COM1 0x3F8
-#define PS2_DATA_PORT 0x60
-#define PS2_STATUS_PORT 0x64
 
 static inline void outb(uint16_t port, uint8_t val) {
     asm volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -14,6 +12,15 @@ static inline uint8_t inb(uint16_t port) {
     uint8_t ret;
     asm volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
     return ret;
+}
+
+void* memcpy(void* dest, const void* src, uint32_t n) {
+    char* d = (char*)dest;
+    const char* s = (const char*)src;
+    for (uint32_t i = 0; i < n; i++) {
+        d[i] = s[i];
+    }
+    return dest;
 }
 
 void init_serial(void) {
@@ -50,7 +57,6 @@ char read_serial(void) {
     return inb(COM1);
 }
 
-/* GDT Structure */
 struct gdt_entry {
     uint16_t limit_low;
     uint16_t base_low;
@@ -99,9 +105,9 @@ int has_pending_request = 0;
 int is_locked_down = 0;
 
 void print_hex(uint8_t val) {
-    const char hex_chars[] = "0123456789ABCDEF";
-    write_serial(hex_chars[(val >> 4) & 0x0F]);
-    write_serial(hex_chars[val & 0x0F]);
+    const char* hex = "0123456789ABCDEF";
+    write_serial(hex[(val >> 4) & 0x0F]);
+    write_serial(hex[val & 0x0F]);
 }
 
 void kernel_main(void) {
