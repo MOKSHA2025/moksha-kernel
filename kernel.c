@@ -50,27 +50,6 @@ char read_serial(void) {
     return inb(COM1);
 }
 
-/* PS/2 Keyboard Scancode Set 1 Mapper */
-char scancode_to_ascii(uint8_t scancode) {
-    switch (scancode) {
-        case 0x1E: return 'a'; case 0x30: return 'b'; case 0x2E: return 'c';
-        case 0x20: return 'd'; case 0x12: return 'e'; case 0x21: return 'f';
-        case 0x22: return 'g'; case 0x23: return 'h'; case 0x17: return 'i';
-        case 0x24: return 'j'; case 0x25: return 'k'; case 0x26: return 'l';
-        case 0x32: return 'm'; case 0x31: return 'n'; case 0x18: return 'o';
-        case 0x19: return 'p'; case 0x10: return 'q'; case 0x13: return 'r';
-        case 0x1F: return 's'; case 0x14: return 't'; case 0x16: return 'u';
-        case 0x2F: return 'v'; case 0x11: return 'w'; case 0x2D: return 'x';
-        case 0x15: return 'y'; case 0x2C: return 'z';
-        case 0x02: return '1'; case 0x03: return '2'; case 0x04: return '3';
-        case 0x05: return '4'; case 0x06: return '5'; case 0x07: return '6';
-        case 0x08: return '7'; case 0x09: return '8'; case 0x0A: return '9';
-        case 0x0B: return '0'; case 0x39: return ' '; case 0x1C: return '\n';
-        case 0x0E: return '\b'; case 0x35: return '/'; case 0x0C: return '-';
-        default: return 0;
-    }
-}
-
 /* GDT Structure */
 struct gdt_entry {
     uint16_t limit_low;
@@ -116,19 +95,14 @@ int strcmp(const char* s1, const char* s2) {
     return *(const unsigned char*)s1 - *(const unsigned char*)s2;
 }
 
-int strncmp(const char* s1, const char* s2, int n) {
-    while (n && *s1 && (*s1 == *s2)) {
-        s1++;
-        s2++;
-        n--;
-    }
-    if (n == 0) return 0;
-    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
-}
-
 int has_pending_request = 0;
 int is_locked_down = 0;
-char pending_ip[32] = "";
+
+void print_hex(uint8_t val) {
+    const char hex_chars[] = "0123456789ABCDEF";
+    write_serial(hex_chars[(val >> 4) & 0x0F]);
+    write_serial(hex_chars[val & 0x0F]);
+}
 
 void kernel_main(void) {
     init_serial();
@@ -138,7 +112,7 @@ void kernel_main(void) {
     print_serial("=====================================================\r\n");
     print_serial("       MOKSHA MICROKERNEL v0.7 (KEYBOARD DRIVER CORE)\r\n");
     print_serial("=====================================================\r\n");
-    print_serial("[PS/2 DRIVER] Keyboard Controller on Port 0x60: READY\r\n");
+    print_serial("[KEY DRIVER] Unified Serial & Key Stream Decoder: READY\r\n");
     print_serial("[VIP ENGINE] Fast-Track 10.0.0.1: ACTIVE\r\n");
     print_serial("[MCD DECK] Remote 2-Way Mobile Channel: READY\r\n");
     print_serial("Type 'help' for commands list.\r\n\r\n");
@@ -175,7 +149,7 @@ void kernel_main(void) {
 
         if (strcmp(buffer, "help") == 0) {
             print_serial("Available Commands:\r\n");
-            print_serial("  key-test     - Listen & decode raw PS/2 hardware scancodes\r\n");
+            print_serial("  key-test     - Live raw key event decoder & hex inspector\r\n");
             print_serial("  admin-req    - Fast-track verified 10.0.0.1 request\r\n");
             print_serial("  unknown-req  - Ingest quarantine packet & alert MCD\r\n");
             print_serial("  approve      - Authorize quarantined IP\r\n");
@@ -183,26 +157,25 @@ void kernel_main(void) {
             print_serial("  reset        - Lift emergency lockdown\r\n");
             print_serial("  reboot       - Trigger hardware reboot\r\n");
         } else if (strcmp(buffer, "key-test") == 0) {
-            print_serial("[KEYBOARD DRIVER TEST] Press keys (Press ESC or Enter to exit)...\r\n");
+            print_serial("[KEYBOARD DRIVER TEST ACTIVE]\r\n");
+            print_serial("Press any key to inspect raw events (Press 'q' or Enter to stop):\r\n");
             while (1) {
-                if (inb(PS2_STATUS_PORT) & 1) {
-                    uint8_t sc = inb(PS2_DATA_PORT);
-                    if (sc < 0x80) { // Key Press
-                        char ascii = scancode_to_ascii(sc);
-                        if (sc == 0x01 || sc == 0x1C) { // ESC or Enter
-                            print_serial("\r\n[KEYBOARD TEST COMPLETED]\r\n");
-                            break;
-                        }
-                        if (ascii) {
-                            print_serial("Key Pressed: ");
-                            write_serial(ascii);
-                            print_serial(" (Scancode: 0x");
-                            write_serial("0123456789ABCDEF"[sc >> 4]);
-                            write_serial("0123456789ABCDEF"[sc & 0x0F]);
-                            print_serial(")\r\n");
-                        }
-                    }
+                char ch = read_serial();
+                if (ch == 'q' || ch == '\r' || ch == '\n') {
+                    print_serial("\r\n[KEYBOARD TEST FINISHED]\r\n");
+                    break;
                 }
+                print_serial(" -> Event Captured: '");
+                write_serial(ch);
+                print_serial("' | Byte: 0x");
+                print_hex((uint8_t)ch);
+                print_serial(" | Decimal: ");
+                
+                uint8_t d = (uint8_t)ch;
+                if (d >= 100) write_serial('0' + (d / 100));
+                if (d >= 10) write_serial('0' + ((d / 10) % 10));
+                write_serial('0' + (d % 10));
+                print_serial("\r\n");
             }
         } else if (strcmp(buffer, "admin-req") == 0) {
             print_serial(">>> [VIP FAST-TRACK AUTHENTICATED] Source: 10.0.0.1 -> EXECUTE SUCCESS!\r\n");
