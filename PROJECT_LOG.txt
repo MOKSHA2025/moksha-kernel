@@ -1,0 +1,25 @@
+PROJECT ENGINEERING LOG: MOKSHA MICROKERNEL (v0.3)
+==================================================
+Project Name: Moksha Microkernel
+Version: 0.3 (Hurd-Style Microkernel IPC Release)
+Architecture: x86 32-bit Protected Mode (i686-none-elf)
+Platform: Termux on Android
+Toolchain: LLVM/Clang, LLD, QEMU (Bare-Metal)
+Repository: MOKSHA2025/moksha-kernel
+
+COMPLETED MILESTONES & SUBSYSTEMS:
+1. Multiboot Bootstrap (boot.s) - 32-bit Entry & 16KB Stack
+2. Memory Layout (linker.ld) - 1MB Base Physical Load Address
+3. UART COM1 Driver (kernel.c) - 38400 Baud Bidirectional Serial I/O
+4. Global Descriptor Table - GDT (kernel.c) - 4GB Flat Model
+5. Interrupt Descriptor Table - IDT (kernel.c) - 256 Exception Gates
+6. Interactive Shell (kernel.c) - Event-driven CLI Interface
+7. Hurd-Style IPC Engine (kernel.c) - Synchronous Message Bus
+
+BUILT-IN COMMANDS:
+- help     : Show available commands
+- info     : Kernel metadata and subsystem status
+- ipc-test : Enqueue sample Hurd-style IPC messages
+- ipc-run  : Dispatch & route messages across servers
+- clear    : Clear terminal screen via ANSI escapes
+- reboot   : Trigger 8042 PS/2 controller hardware reset
