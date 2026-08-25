@@ -1,26 +1,77 @@
-PROJECT ENGINEERING LOG: MOKSHA MICROKERNEL (v0.4)
-==================================================
-Project Name: Moksha Microkernel
-Version: 0.4 (Military Shield Core Release)
+PROJECT ENGINEERING MASTER LOG: MOKSHA MICROKERNEL
+Project Name: Moksha Microkernel (Cyber-Physical Sentinel Core)
+Lead Architect: Moksha
 Architecture: x86 32-bit Protected Mode (i686-none-elf)
-Platform: Termux on Android
-Toolchain: LLVM/Clang, LLD, QEMU (Bare-Metal)
-Repository: MOKSHA2025/moksha-kernel
+Build Platform: Termux (Android Environment)
+Virtualization: Bare-Metal QEMU (qemu-system-x86_64)
+Toolchain: NASM, Clang / GCC (-m32 freestanding), LLD / LD, Python 3
+Push Bridge Core: ntfy.sh Sentinel Real-Time Telemetry (Moksha-Master-Core)
+Master Repository: MOKSHA2025/moksha-kernel
+Current Status: ACTIVE & COMBINED v0.1 -> v0.9 SPECIFICATION
 
-COMPLETED MILESTONES & SUBSYSTEMS:
-1. Multiboot Bootstrap (boot.s) - 32-bit Entry & 16KB Stack
-2. Memory Layout (linker.ld) - 1MB Base Physical Load Address
-3. UART COM1 Driver (kernel.c) - 38400 Baud Bidirectional Serial I/O
-4. Global Descriptor Table - GDT (kernel.c) - 4GB Flat Model Security Ring
-5. Interrupt Descriptor Table - IDT (kernel.c) - 256 Exception/Trap Gates
-6. Interactive Shell (kernel.c) - Event-driven CLI Interface (moksha-shield>)
-7. Hurd-Style IPC Bus (kernel.c) - Synchronous Message System
-8. Military Shield Core (kernel.c) - 256-bit Cryptographic Hash Integrity Engine
+SUBSYSTEM ROADMAP & VERSION EVOLUTION LOG
+[v0.1 - FOUNDATION & MULTIBOOT LOADER]
+Implemented boot.s assembly multiboot header compliant with GRUB/QEMU standard.
+Allocated 16 KB dedicated physical kernel execution stack.
+Configured 32-bit Protected Mode initial entry point & CPU register zeroing.
+Established linker.ld loading kernel binary at 1 MB base physical boundary.
 
-BUILT-IN COMMANDS:
-- help    : Show security help menu
-- info    : Microkernel v0.4 security status
-- test    : Queue encrypted military-grade payload messages
-- verify  : Execute cryptographic hash integrity check
-- clear   : Clear terminal screen via ANSI escapes
-[VERIFIED TEST 2026-08-24 14:28:59] 2FA Sentinel Dynamic Gatekeeper Active
+[v0.2 - LOW-LEVEL I/O & UART SERIAL ENGINE]
+Implemented inline hardware port I/O primitives (outb, inb).
+Developed standalone bare-metal memcpy, strcmp string manipulation routines.
+Built UART COM1 serial controller running at 38,400 baud.
+Engineered ANSI terminal escape sequence handler for real-time text I/O.
+
+[v0.3 - RING 0 HARDWARE PROTECTION & GDT]
+Built Global Descriptor Table (GDT) structure with 4 GB Flat Memory Model.
+Implemented Kernel Code Segment (0x08 - Ring 0 Executable/Read-Only).
+Implemented Kernel Data Segment (0x10 - Ring 0 Read/Write).
+Dynamic GDT pointer loading via lgdt instruction.
+
+[v0.4 - MILITARY SHIELD CORE & BASIC INTERRUPTS]
+Engineered 256-bit cryptographic payload verification stub for IPC packets.
+Implemented Interrupt Descriptor Table (IDT) layout for hardware trap gates.
+Built interactive command parsing engine (moksha-shield> shell loop).
+Integrated basic hardware reboot sequence via PS/2 keyboard controller (0x64).
+
+[v0.5 - DYNAMIC GATEKEEPER & QUARANTINE SYSTEM]
+Deployed stateful quarantine engine (has_pending_request, is_locked_down).
+Added VIP fast-track packet pipeline for authenticated subnet (10.0.0.1).
+Implemented automated intruder quarantine for unauthorized inputs (192.168.1.108).
+Integrated dynamic Visitor Pass cryptographic token generation (#VP-9982).
+
+[v0.6 - NEURAL HEURISTIC AI SCANNER MODULE]
+Built ai_manager_analyze() heuristic engine directly into the kernel binary.
+Live telemetry monitoring for Ring 0 memory boundary integrity (100% Secure).
+Dynamic Intruder Risk Assessment algorithm (Nominal baseline: 0.02%).
+Context-aware system state reporting and mitigation advice generation.
+
+[v0.7 - SERIAL & RAW KEYSTREAM DECODER]
+Built real-time keyboard event inspector (key-test mode).
+Developed hex byte formatting routine (print_hex) for scan code debugging.
+Enabled continuous event stream trapping and ASCII/Hex decimal matrix mapping.
+
+[v0.8 - TELEMETRY BRIDGE ENGINE (PYTHON PTY)]
+Engineered asynchronous Pseudo-Terminal (pty.openpty) bridge between QEMU & Host.
+Captured raw serial stream and filtered escape character noise.
+Connected bridge to background network sockets for mobile alerting.
+Resolved race conditions and buffer splitting via line-accumulator parsing.
+
+[v0.9 - ZERO-DEPENDENCY NTFY SENTINEL INTEGRATION]
+Migrated external alert bus to zero-auth, high-speed ntfy.sh push pipeline.
+Established dedicated push channel: ntfy.sh/Moksha-Master-Core.
+Configured dynamic priority mapping (Urgent/Skull for lockdown, High for override).
+Verified full-duplex loop: Bare-Metal C Kernel -> QEMU Serial -> Python Bridge -> Mobile.
+
+COMMAND MATRIX SPECIFICATION
+help: Displays sentinel command index and syntax guide.
+ai-status: Executes neural heuristic scan & outputs Ring 0 integrity status.
+key-test: Enters live keyboard driver debug mode to capture raw bytes.
+admin-req: Simulates VIP fast-track authentication from 10.0.0.1.
+unknown-req: Quarantines untrusted packet & triggers mobile sentinel push.
+approve: Generates Visitor Pass (#VP-9982) & clears quarantine state.
+deny: Blacklists intruder & locks down Ring 0 gates (Lockdown Active).
+reset: Master override to lift lockdown and restore normal gate state.
+reboot: Sends 0xFE pulse to port 0x64 to trigger hardware reset.
+
+MASTER STATUS: Moksha Microkernel Unified Architecture Fully Documented.
