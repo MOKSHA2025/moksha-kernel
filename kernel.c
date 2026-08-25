@@ -1,236 +1,65 @@
-typedef unsigned char uint8_t;
-typedef unsigned short uint16_t;
-typedef unsigned int uint32_t;
+#include <stdint.h>
+#define UART_COM1 0x3F8
 
-#define COM1 0x3F8
+__attribute__((aligned(4096))) uint32_t page_directory[1024];
+__attribute__((aligned(4096))) uint32_t first_page_table[1024];
 
 static inline void outb(uint16_t port, uint8_t val) {
-    asm volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
 }
 
-static inline uint8_t inb(uint16_t port) {
-    uint8_t ret;
-    asm volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
-    return ret;
+void uart_init() {
+    outb(UART_COM1 + 1, 0x00);
+    outb(UART_COM1 + 3, 0x80);
+    outb(UART_COM1 + 0, 0x03);
+    outb(UART_COM1 + 1, 0x00);
+    outb(UART_COM1 + 3, 0x03);
+    outb(UART_COM1 + 2, 0xC7);
+    outb(UART_COM1 + 4, 0x0B);
 }
 
-void* memcpy(void* dest, const void* src, uint32_t n) {
-    char* d = (char*)dest;
-    const char* s = (const char*)src;
-    for (uint32_t i = 0; i < n; i++) {
-        d[i] = s[i];
-    }
-    return dest;
+void uart_putc(char c) {
+    outb(UART_COM1, c);
 }
 
-void init_serial(void) {
-    outb(COM1 + 1, 0x00);
-    outb(COM1 + 3, 0x80);
-    outb(COM1 + 0, 0x03);
-    outb(COM1 + 1, 0x00);
-    outb(COM1 + 3, 0x03);
-    outb(COM1 + 2, 0xC7);
-    outb(COM1 + 4, 0x0B);
-}
-
-int is_transmit_empty(void) {
-    return inb(COM1 + 5) & 0x20;
-}
-
-void write_serial(char a) {
-    while (is_transmit_empty() == 0);
-    outb(COM1, a);
-}
-
-void print_serial(const char* str) {
-    for (int i = 0; str[i] != '\0'; i++) {
-        write_serial(str[i]);
+void uart_puts(const char* str) {
+    while (*str) {
+        if (*str == "\n") uart_putc("\r");
+        uart_putc(*str++);
     }
 }
 
-int serial_received(void) {
-    return inb(COM1 + 5) & 1;
-}
-
-char read_serial(void) {
-    while (serial_received() == 0);
-    return inb(COM1);
-}
-
-struct gdt_entry {
-    uint16_t limit_low;
-    uint16_t base_low;
-    uint8_t  base_middle;
-    uint8_t  access;
-    uint8_t  granularity;
-    uint8_t  base_high;
-} __attribute__((packed));
-
-struct gdt_ptr {
-    uint16_t limit;
-    uint32_t base;
-} __attribute__((packed));
-
-struct gdt_entry gdt[3];
-struct gdt_ptr gp;
-
-void gdt_set_gate(int num, uint32_t base, uint32_t limit, uint8_t access, uint8_t gran) {
-    gdt[num].base_low = (base & 0xFFFF);
-    gdt[num].base_middle = (base >> 16) & 0xFF;
-    gdt[num].base_high = (base >> 24) & 0xFF;
-    gdt[num].limit_low = (limit & 0xFFFF);
-    gdt[num].granularity = (limit >> 16) & 0x0F;
-    gdt[num].granularity |= (gran & 0xF0);
-    gdt[num].access = access;
-}
-
-void init_gdt(void) {
-    gp.limit = (sizeof(struct gdt_entry) * 3) - 1;
-    gp.base = (uint32_t)&gdt;
-    gdt_set_gate(0, 0, 0, 0, 0);
-    gdt_set_gate(1, 0, 0xFFFFFFFF, 0x9A, 0xCF);
-    gdt_set_gate(2, 0, 0xFFFFFFFF, 0x92, 0xCF);
-    asm volatile ("lgdt (%0)" : : "r" (&gp));
-}
-
-int strcmp(const char* s1, const char* s2) {
-    while (*s1 && (*s1 == *s2)) {
-        s1++;
-        s2++;
+void init_paging() {
+    for (int i = 0; i < 1024; i++) {
+        first_page_table[i] = (i * 0x1000) | 3;
     }
-    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
-}
-
-int has_pending_request = 0;
-int is_locked_down = 0;
-
-void print_hex(uint8_t val) {
-    const char* hex = "0123456789ABCDEF";
-    write_serial(hex[(val >> 4) & 0x0F]);
-    write_serial(hex[val & 0x0F]);
-}
-
-/* SMART AI MANAGER - KERNEL DECISION CORE */
-void ai_manager_analyze(void) {
-    print_serial("\r\n🧠 [AI MANAGER] Running Neural Heuristic Threat Scan...\r\n");
-    print_serial("-----------------------------------------------------\r\n");
-    print_serial(" -> Ring 0 Memory Integrity : 100% Secure\r\n");
-    print_serial(" -> Sentinel Firewall     : Active (VIP 10.0.0.1 Fast-Track)\r\n");
-    print_serial(" -> Intruder Risk Score   : 0.02% (Optimal)\r\n");
-    if (is_locked_down) {
-        print_serial(" -> AI Recommendation     : CRITICAL! System is under lockdown. Execute 'reset' to restore.\r\n");
-    } else if (has_pending_request) {
-        print_serial(" -> AI Recommendation     : Warning! Quarantined IP pending. Use 'approve' or 'deny'.\r\n");
-    } else {
-        print_serial(" -> AI Recommendation     : All systems nominal. Master Moksha authority verified.\r\n");
+    for (int i = 0; i < 1024; i++) {
+        page_directory[i] = 0x00000002;
     }
-    print_serial("-----------------------------------------------------\r\n");
+    page_directory[0] = ((uint32_t)first_page_table) | 3;
+
+    __asm__ volatile (
+        "mov %0, %%cr3\n"
+        "mov %%cr0, %%eax\n"
+        "or $0x80000001, %%eax\n"
+        "mov %%eax, %%cr0\n"
+        : : "r"(page_directory) : "eax", "memory"
+    );
 }
 
-void kernel_main(void) {
-    init_serial();
-    init_gdt();
-
-    print_serial("\033[2J\033[H");
-    print_serial("=====================================================\r\n");
-    print_serial("     MOKSHA MICROKERNEL v0.8 (SMART AI MANAGER CORE)\r\n");
-    print_serial("=====================================================\r\n");
-    print_serial("[AI CORE] Moksha Neural Manager Engine : ONLINE\r\n");
-    print_serial("[KEY DRIVER] Serial & Key Stream Decoder : READY\r\n");
-    print_serial("[VIP ENGINE] Fast-Track 10.0.0.1         : ACTIVE\r\n");
-    print_serial("Type 'help' for commands list.\r\n\r\n");
-
-    char buffer[128];
-    int buf_idx = 0;
-
+void kernel_main() {
+    uart_init();
+    uart_puts("\033[2J\033[H");
+    uart_puts("\n======================================================\n");
+    uart_puts("   🛡️ MOKSHA MICROKERNEL v1.0 (PAGING & STACK ACTIVE)\n");
+    uart_puts("======================================================\n");
+    uart_puts("[OK] 16 KB Dedicated Execution Stack Bound.\n");
+    init_paging();
+    uart_puts("[OK] 4 KB Identity Paging Activated via CR0/CR3.\n");
+    uart_puts("[OK] Virtual Memory Management: LOCKED & OPERATIONAL.\n");
+    uart_puts("------------------------------------------------------\n");
+    uart_puts("moksha-shield> ");
     while (1) {
-        print_serial("moksha-sentinel> ");
-        buf_idx = 0;
-        
-        while (1) {
-            char c = read_serial();
-            
-            if (c == '\r' || c == '\n') {
-                buffer[buf_idx] = '\0';
-                print_serial("\r\n");
-                break;
-            } else if (c == '\b' || c == 127) {
-                if (buf_idx > 0) {
-                    buf_idx--;
-                    print_serial("\b \b");
-                }
-            } else if (buf_idx < 127) {
-                buffer[buf_idx++] = c;
-                write_serial(c);
-            }
-        }
-
-        if (is_locked_down && strcmp(buffer, "reset") != 0) {
-            print_serial("🚨 [ACCESS DENIED] System is under FULL LOCKDOWN!\r\n");
-            continue;
-        }
-
-        if (strcmp(buffer, "help") == 0) {
-            print_serial("Available Commands:\r\n");
-            print_serial("  ai-status    - Run AI Manager system scan & recommendations\r\n");
-            print_serial("  key-test     - Live raw key event decoder & hex inspector\r\n");
-            print_serial("  admin-req    - Fast-track verified 10.0.0.1 request\r\n");
-            print_serial("  unknown-req  - Ingest quarantine packet & alert MCD\r\n");
-            print_serial("  approve      - Authorize quarantined IP\r\n");
-            print_serial("  deny         - Neutralize intruder & lockdown gates\r\n");
-            print_serial("  reset        - Lift emergency lockdown\r\n");
-            print_serial("  reboot       - Trigger hardware reboot\r\n");
-        } else if (strcmp(buffer, "ai-status") == 0) {
-            ai_manager_analyze();
-        } else if (strcmp(buffer, "key-test") == 0) {
-            print_serial("[KEYBOARD DRIVER TEST ACTIVE]\r\n");
-            print_serial("Press any key to inspect raw events (Press 'q' or Enter to stop):\r\n");
-            while (1) {
-                char ch = read_serial();
-                if (ch == 'q' || ch == '\r' || ch == '\n') {
-                    print_serial("\r\n[KEYBOARD TEST FINISHED]\r\n");
-                    break;
-                }
-                print_serial(" -> Event Captured: '");
-                write_serial(ch);
-                print_serial("' | Byte: 0x");
-                print_hex((uint8_t)ch);
-                print_serial(" | Decimal: ");
-                
-                uint8_t d = (uint8_t)ch;
-                if (d >= 100) write_serial('0' + (d / 100));
-                if (d >= 10) write_serial('0' + ((d / 10) % 10));
-                write_serial('0' + (d % 10));
-                print_serial("\r\n");
-            }
-        } else if (strcmp(buffer, "admin-req") == 0) {
-            print_serial(">>> [VIP FAST-TRACK AUTHENTICATED] Source: 10.0.0.1 -> EXECUTE SUCCESS!\r\n");
-        } else if (strcmp(buffer, "unknown-req") == 0) {
-            has_pending_request = 1;
-            print_serial("⚠️ [SENTINEL ALERT -> NOTIFICATION TO MOKSHA MASTER PHONE]\r\n");
-            print_serial("Suspicious IP 192.168.1.108 held in quarantine.\r\n");
-        } else if (strcmp(buffer, "approve") == 0) {
-            if (has_pending_request) {
-                has_pending_request = 0;
-                print_serial("🛡️ [MOKSHA APPROVED] Visitor Pass Generated: #VP-9982\r\n");
-            } else {
-                print_serial("[INFO] No pending requests to approve.\r\n");
-            }
-        } else if (strcmp(buffer, "deny") == 0) {
-            if (has_pending_request) {
-                has_pending_request = 0;
-                is_locked_down = 1;
-                print_serial("🚨 [MOKSHA REJECTED] INTRUDER BLACKLISTED! EMERGENCY LOCKDOWN!\r\n");
-            } else {
-                print_serial("[INFO] No pending requests to deny.\r\n");
-            }
-        } else if (strcmp(buffer, "reset") == 0) {
-            is_locked_down = 0;
-            print_serial("🔓 [MASTER OVERRIDE] Lockdown Lifted. Gates Normal.\r\n");
-        } else if (strcmp(buffer, "reboot") == 0) {
-            outb(0x64, 0xFE);
-        } else if (buf_idx > 0) {
-            print_serial("Unknown command. Type 'help'.\r\n");
-        }
+        __asm__ volatile ("hlt");
     }
 }
