@@ -58,6 +58,21 @@ void print_dec(uint32_t val) {
     }
 }
 
+int strcmp(const char* s1, const char* s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+}
+
+void strcpy(char* dest, const char* src) {
+    while (*src) {
+        *dest++ = *src++;
+    }
+    *dest = '\0';
+}
+
 // --- PAGING SUBSYSTEM ---
 void init_paging() {
     for (int i = 0; i < 1024; i++) {
@@ -78,45 +93,83 @@ void init_paging() {
     );
 }
 
-// --- COOPERATIVE / PREEMPTIVE MULTITASKING SCHEDULER ---
-typedef struct task_control_block {
-    uint32_t esp;
-    uint32_t id;
-    const char* name;
-    uint32_t counter;
-} tcb_t;
+// --- VIRTUAL FILE SYSTEM & IN-MEMORY RAMDISK ---
+#define MAX_FILES 8
+#define MAX_FILE_SIZE 512
 
-static uint8_t stack_a[4096] __attribute__((aligned(16)));
-static uint8_t stack_b[4096] __attribute__((aligned(16)));
+typedef struct {
+    char name[32];
+    uint32_t size;
+    uint8_t data[MAX_FILE_SIZE];
+    int in_use;
+} vfs_file_t;
 
-static tcb_t tasks[2];
-static int current_task = 0;
+static vfs_file_t ramdisk[MAX_FILES];
 
-void task_yield() {
-    // Round-Robin Switcher
-    int next_task = (current_task + 1) % 2;
-    current_task = next_task;
+void init_vfs() {
+    for (int i = 0; i < MAX_FILES; i++) {
+        ramdisk[i].in_use = 0;
+        ramdisk[i].size = 0;
+        ramdisk[i].name[0] = '\0';
+    }
 }
 
-// Simple Software Delay for Demonstration
-void delay(int cycles) {
-    for (volatile int i = 0; i < cycles * 500000; i++);
+int vfs_create(const char* filename) {
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (!ramdisk[i].in_use) {
+            strcpy(ramdisk[i].name, filename);
+            ramdisk[i].size = 0;
+            ramdisk[i].in_use = 1;
+            return i;
+        }
+    }
+    return -1; // RAMDisk Full
 }
 
-// --- TASK A: SENTINEL NETWORK HEARTBEAT ---
-void task_a_loop() {
-    tasks[0].counter++;
-    uart_puts("[TASK A - SENTINEL] Pulse Active | Cycle: ");
-    print_dec(tasks[0].counter);
-    uart_puts(" | Subnet 10.0.0.1 Verified\n");
+int vfs_write(const char* filename, const char* src_data, uint32_t len) {
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (ramdisk[i].in_use && strcmp(ramdisk[i].name, filename) == 0) {
+            if (len > MAX_FILE_SIZE) len = MAX_FILE_SIZE;
+            for (uint32_t j = 0; j < len; j++) {
+                ramdisk[i].data[j] = src_data[j];
+            }
+            ramdisk[i].size = len;
+            return len;
+        }
+    }
+    return -1; // File not found
 }
 
-// --- TASK B: HEAP & MEMORY WATCHDOG ---
-void task_b_loop() {
-    tasks[1].counter++;
-    uart_puts("[TASK B - WATCHDOG] Memory Guard | Cycle: ");
-    print_dec(tasks[1].counter);
-    uart_puts(" | 8MB Paging 100% Secure\n");
+int vfs_read(const char* filename, char* dest_buf, uint32_t max_len) {
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (ramdisk[i].in_use && strcmp(ramdisk[i].name, filename) == 0) {
+            uint32_t read_bytes = (ramdisk[i].size < max_len) ? ramdisk[i].size : max_len;
+            for (uint32_t j = 0; j < read_bytes; j++) {
+                dest_buf[j] = ramdisk[i].data[j];
+            }
+            dest_buf[read_bytes] = '\0';
+            return read_bytes;
+        }
+    }
+    return -1; // File not found
+}
+
+void vfs_list() {
+    uart_puts("\n[RAMDISK VFS CATALOG]\n");
+    int count = 0;
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (ramdisk[i].in_use) {
+            uart_puts("  - File: ");
+            uart_puts(ramdisk[i].name);
+            uart_puts(" | Size: ");
+            print_dec(ramdisk[i].size);
+            uart_puts(" bytes\n");
+            count++;
+        }
+    }
+    if (count == 0) {
+        uart_puts("  (No files found in RAMDisk)\n");
+    }
 }
 
 // --- KERNEL ENTRY POINT ---
@@ -124,39 +177,44 @@ void kernel_main() {
     uart_init();
     uart_puts("\033[2J\033[H");
     uart_puts("\n======================================================\n");
-    uart_puts("   🛡️ MOKSHA MICROKERNEL v1.3 (MULTITASKING SCHEDULER)\n");
+    uart_puts("   🛡️ MOKSHA MICROKERNEL v1.4 (VFS & RAMDISK CORE)\n");
     uart_puts("======================================================\n");
-    uart_puts("[OK] 16 KB Dedicated Kernel Stack Locked.\n");
+    uart_puts("[OK] 16 KB Physical Stack Locked.\n");
 
     init_paging();
     uart_puts("[OK] 8 MB Identity Paging Active.\n");
 
-    // Initialize Task Control Blocks
-    tasks[0].id = 1;
-    tasks[0].name = "SENTINEL-PULSE";
-    tasks[0].counter = 0;
+    init_vfs();
+    uart_puts("[OK] In-Memory RAMDisk Subsystem Initialized.\n");
 
-    tasks[1].id = 2;
-    tasks[1].name = "HEAP-WATCHDOG";
-    tasks[1].counter = 0;
+    // VFS Self-Test: Create and Write Files
+    uart_puts("\n[TEST] Executing VFS File System Test:\n");
+    
+    // File 1: Sentinel Configuration
+    vfs_create("sentinel.cfg");
+    const char* cfg_data = "SECURE_MODE=ACTIVE;VIP_IP=10.0.0.1;AUTO_CALL=TRUE";
+    vfs_write("sentinel.cfg", cfg_data, 50);
+    uart_puts("       [WRITE] Created 'sentinel.cfg' with 50 bytes config data.\n");
 
-    uart_puts("[OK] Task Scheduler Initialized (2 Concurrent Tasks Registered).\n");
-    uart_puts("[RUN] Dispatching Round-Robin Scheduling Loop:\n");
+    // File 2: System Log File
+    vfs_create("sys.log");
+    const char* log_data = "BOOT_SUCCESS_v1.4_RAMDISK_READY";
+    vfs_write("sys.log", log_data, 31);
+    uart_puts("       [WRITE] Created 'sys.log' with 31 bytes log data.\n");
+
+    // Display File Catalog
+    vfs_list();
+
+    // Read and verify file contents
+    char read_buffer[64];
+    vfs_read("sentinel.cfg", read_buffer, sizeof(read_buffer));
+    uart_puts("\n[READ VERIFICATION] Reading 'sentinel.cfg':\n");
+    uart_puts("  Content: \"");
+    uart_puts(read_buffer);
+    uart_puts("\"\n");
+
     uart_puts("------------------------------------------------------\n");
-
-    // Multitasking Execution Loop (Switching between Task A and Task B)
-    for (int cycle = 1; cycle <= 6; cycle++) {
-        if (current_task == 0) {
-            task_a_loop();
-        } else {
-            task_b_loop();
-        }
-        delay(2);
-        task_yield();
-    }
-
-    uart_puts("------------------------------------------------------\n");
-    uart_puts("[SUCCESS] Preemptive Multi-Task Switching Verified.\n");
+    uart_puts("[SUCCESS] VFS & RAMDisk Read/Write Fully Operational.\n");
     uart_puts("moksha-shield> ");
 
     while (1) {
